@@ -5,6 +5,153 @@ if (!defined('ABSPATH')) {
 }
 
 
+add_action('wp_ajax_initialize_processed_table', 'initialize_processed_table');
+
+function initialize_processed_table() {
+    global $wpdb;
+
+    $processed_table_name = $wpdb->prefix . 'processed_products';
+
+    // Get all product IDs, including out-of-stock products
+    $products = get_posts([
+        'post_type'      => 'product',
+        'posts_per_page' => -1,
+        'post_status'    => 'any', // Include all product statuses
+        'fields'         => 'ids', // Retrieve only IDs
+        'meta_query'     => [
+            'relation' => 'OR',
+            [
+                'key'     => '_stock_status',
+                'value'   => 'instock',
+                'compare' => '=', // Include "In Stock" products
+            ],
+            [
+                'key'     => '_stock_status',
+                'value'   => 'outofstock',
+                'compare' => '=', // Include "Out of Stock" products
+            ],
+        ],
+    ]);
+
+    foreach ($products as $product_id) {
+        $product_link = get_permalink($product_id);
+
+        // Insert the product into the processed_products table if not already added
+        $wpdb->query(
+            $wpdb->prepare(
+                "INSERT IGNORE INTO $processed_table_name (product_id, product_link, status, date_processed)
+                 VALUES (%d, %s, %s, %s)",
+                $product_id,
+                $product_link,
+                'Not Processed',
+                null
+            )
+        );
+    }
+
+    wp_send_json_success(['message' => 'Table initialized successfully.']);
+}
+
+add_action('wp_ajax_bulk_price_updater', 'bulk_price_updater_ajax_handler');
+
+function bulk_price_updater_ajax_handler() {
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(['message' => 'Unauthorized.']);
+    }
+
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'processed_products';
+    $batch_size = intval($_POST['batch_size']);
+    $percentage = floatval($_POST['percentage']);
+
+    // Fetch products from the processed_products table that are not yet updated
+    $products = $wpdb->get_results(
+        $wpdb->prepare(
+            "SELECT product_id FROM $table_name WHERE status = %s LIMIT %d",
+            'Not Processed',
+            $batch_size
+        )
+    );
+
+    if (empty($products)) {
+        wp_send_json_success(['message' => 'No more products to process.']);
+    }
+
+    foreach ($products as $row) {
+        $product_id = $row->product_id;
+        $product_obj = wc_get_product($product_id);
+
+        if (!$product_obj) {
+            // Mark as failed if the product object can't be loaded
+            $wpdb->update(
+                $table_name,
+                ['status' => 'Failed', 'date_processed' => current_time('mysql')],
+                ['product_id' => $product_id],
+                ['%s', '%s'],
+                ['%d']
+            );
+            continue;
+        }
+
+        $updated = false;
+
+        // Handle variable products
+        if ($product_obj->is_type('variable')) {
+            foreach ($product_obj->get_children() as $variation_id) {
+                $variation_obj = wc_get_product($variation_id);
+
+                if ($variation_obj) {
+                    $regular_price = floatval($variation_obj->get_regular_price());
+                    if ($regular_price > 0) {
+                        $new_regular_price = $regular_price + ($regular_price * ($percentage / 100));
+                        $variation_obj->set_regular_price(ceil($new_regular_price));
+                        $updated = true;
+                    }
+
+                    $sale_price = floatval($variation_obj->get_sale_price());
+                    if ($sale_price > 0) {
+                        $new_sale_price = $sale_price + ($sale_price * ($percentage / 100));
+                        $variation_obj->set_sale_price(ceil($new_sale_price));
+                        $updated = true;
+                    }
+
+                    $variation_obj->save();
+                }
+            }
+        } else {
+            // Handle simple products
+            $regular_price = floatval($product_obj->get_regular_price());
+            if ($regular_price > 0) {
+                $new_regular_price = $regular_price + ($regular_price * ($percentage / 100));
+                $product_obj->set_regular_price(ceil($new_regular_price));
+                $updated = true;
+            }
+
+            $sale_price = floatval($product_obj->get_sale_price());
+            if ($sale_price > 0) {
+                $new_sale_price = $sale_price + ($sale_price * ($percentage / 100));
+                $product_obj->set_sale_price(ceil($new_sale_price));
+                $updated = true;
+            }
+
+            $product_obj->save();
+        }
+
+        // Update the status in the processed_products table
+        $wpdb->update(
+            $table_name,
+            ['status' => $updated ? 'Updated' : 'Failed', 'date_processed' => current_time('mysql')],
+            ['product_id' => $product_id],
+            ['%s', '%s'],
+            ['%d']
+        );
+    }
+
+    wp_send_json_success(['message' => 'Batch processed successfully.']);
+}
+
+/*
 add_action('wp_ajax_bulk_price_updater', 'bulk_price_updater_ajax_handler');
 function bulk_price_updater_ajax_handler() {
     if (!current_user_can('manage_options')) {
@@ -13,7 +160,7 @@ function bulk_price_updater_ajax_handler() {
 
     global $wpdb;
     $table_name = $wpdb->prefix . 'processed_products';
-    
+
     $offset = intval($_POST['offset']);
     $batch_size = intval($_POST['batch_size']);
     $percentage = floatval($_POST['percentage']);
@@ -35,16 +182,28 @@ function bulk_price_updater_ajax_handler() {
             "SELECT COUNT(*) FROM $table_name WHERE product_id = %d",
             $product_id
         ));
-        
+
         if ($is_processed) {
             continue; // Skip this product
         }
 
+        // Insert placeholder record into the database
+        $wpdb->insert(
+            $table_name,
+            [
+                'product_id'   => $product_id,
+                'product_link' => get_permalink($product_id),
+            ],
+            [
+                '%d',
+                '%s',
+            ]
+        );
+
         $product_obj = wc_get_product($product_id);
+        $updated = false;
 
         if ($product_obj) {
-            $updated = false;
-
             // Update Variable Products
             if ($product_obj->is_type('variable')) {
                 $variations = $product_obj->get_children();
@@ -93,24 +252,16 @@ function bulk_price_updater_ajax_handler() {
 
                 $product_obj->save();
             }
-
-            // Log the product as processed if it was updated
-            if ($updated) {
-                $product_link = get_permalink($product_id);
-
-                $wpdb->insert(
-                    $table_name,
-                    [
-                        'product_id'   => $product_id,
-                        'product_link' => $product_link,
-                    ],
-                    [
-                        '%d',
-                        '%s',
-                    ]
-                );
-            }
         }
+
+        // Update the status in the processed_products table
+        $wpdb->update(
+            $table_name,
+            ['status' => $updated ? 'Updated' : 'Failed'], // Add a status column to indicate success or failure
+            ['product_id' => $product_id], // Where condition
+            ['%s'], // Data type for status
+            ['%d']  // Data type for product_id
+        );
     }
 
     // Get total product count for progress tracking
@@ -123,6 +274,8 @@ function bulk_price_updater_ajax_handler() {
         'total_products' => $total_products,
     ]);
 }
+
+*/
 
 
 add_action('wp_ajax_update_not_processed_products', 'update_not_processed_products_ajax_handler');

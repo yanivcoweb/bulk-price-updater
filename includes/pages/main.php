@@ -1,13 +1,11 @@
 <?php 
 
 
-// Display plugin page
 function bulk_price_updater_page() {
     ?>
     <div class="wrap">
         <h1>Bulk Product Price Updater</h1>
-        <p>Enter the percentage by which you want to update the prices and click the button to start the process.</p>
-        <form id="price-updater-form">
+        <form id="bulk-price-updater-form">
             <label for="percentage">Percentage Change (%)</label>
             <input type="number" id="percentage" name="percentage" step="0.1" required style="width: 100px;">
             <p class="description">Enter a positive value to increase prices or a negative value to decrease them.</p>
@@ -20,28 +18,23 @@ function bulk_price_updater_page() {
     </div>
     <script>
         (function($) {
-            let offset = 0;
-            let batchSize = 50;
+            let batchSize = 50; // Adjust batch size as needed
+            let percentage = 0;
 
-            function updateBatch(percentage) {
+            function processBatch() {
                 $.post(ajaxurl, {
                     action: 'bulk_price_updater',
-                    offset: offset,
                     batch_size: batchSize,
                     percentage: percentage
                 }, function(response) {
                     if (response.success) {
-                        offset += batchSize;
+                        $('#status-message').text(response.data.message);
 
-                        // Update progress bar
-                        let progress = (response.data.total_done / response.data.total_products) * 100;
-                        $('#progress-bar').css('width', progress + '%');
-
-                        // Check if more products remain
-                        if (response.data.remaining > 0) {
-                            updateBatch(percentage);
+                        // Continue processing if there are more products
+                        if (response.data.message !== 'No more products to process.') {
+                            processBatch();
                         } else {
-                            $('#status-message').text('All products have been updated!');
+                            $('#status-message').text('All products have been processed.');
                         }
                     } else {
                         $('#status-message').text('An error occurred: ' + response.data.message);
@@ -50,13 +43,14 @@ function bulk_price_updater_page() {
             }
 
             $('#start-update').on('click', function() {
-                const percentage = parseFloat($('#percentage').val());
+                percentage = parseFloat($('#percentage').val());
                 if (isNaN(percentage)) {
                     alert('Please enter a valid percentage.');
                     return;
                 }
-                $('#status-message').text('Updating prices... Please wait.');
-                updateBatch(percentage);
+
+                $('#status-message').text('Processing products... Please wait.');
+                processBatch();
             });
         })(jQuery);
     </script>

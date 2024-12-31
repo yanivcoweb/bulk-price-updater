@@ -8,6 +8,7 @@ if (!defined('ABSPATH')) {
 add_action('admin_menu', 'bulk_price_updater_menu');
 
 function bulk_price_updater_menu() {
+	
     add_menu_page(
         'Bulk Price Updater',
         'Price Updater',
@@ -26,7 +27,7 @@ function bulk_price_updater_menu() {
         'processed-products-log',
         'bulk_price_updater_display_log'
     );
-	
+	/*
 	add_submenu_page(
         'bulk-price-updater',          // Parent slug
         'All Products Status',         // Page title
@@ -35,6 +36,25 @@ function bulk_price_updater_menu() {
         'all-products-status',         // Menu slug
         'bulk_price_updater_display_all_products' // Callback function
     );
+	
+	add_submenu_page(
+        'bulk-price-updater',          // Parent slug
+        'Not Processed Products',      // Page title
+        'Not Processed Products',      // Menu title
+        'manage_options',              // Capability
+        'not-processed-products',      // Menu slug
+        'bulk_price_updater_not_processed_page' // Callback function
+    );
+	*/
+	add_submenu_page(
+        'bulk-price-updater',          // Parent menu slug
+        'Initialize Processed Table',  // Page title
+        'Initialize Table',            // Menu title
+        'manage_options',              // Capability
+        'initialize-processed-table',  // Menu slug
+        'initialize_processed_table_page' // Callback function
+    );
+	
 }
 
 

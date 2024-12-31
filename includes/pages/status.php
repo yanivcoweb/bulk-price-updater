@@ -5,7 +5,6 @@
 
 
 
-
 function bulk_price_updater_display_all_products() {
     global $wpdb;
     $processed_table_name = $wpdb->prefix . 'processed_products';
@@ -34,29 +33,36 @@ function bulk_price_updater_display_all_products() {
         <table class="widefat fixed" style="margin-top: 20px;">
             <thead>
                 <tr>
+                    <th>#</th>
                     <th>Product ID</th>
                     <th>Product Link</th>
                     <th>Processed Log ID</th>
+                    <th>Status</th>
+                    <th>Date Processed</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($products)) : ?>
                     <tr>
-                        <td colspan="3">No products found.</td>
+                        <td colspan="6">No products found.</td>
                     </tr>
                 <?php else : ?>
-                    <?php foreach ($products as $product) : ?>
-                        <?php
+                    <?php
+                    $line_number = 1; // Initialize line number
+                    foreach ($products as $product) :
                         // Check if the product exists in the processed log table
                         $processed_log = $wpdb->get_row($wpdb->prepare(
-                            "SELECT id FROM $processed_table_name WHERE product_id = %d",
+                            "SELECT id, status, date_processed FROM $processed_table_name WHERE product_id = %d",
                             $product->ID
                         ));
                         ?>
                         <tr>
+                            <td><?php echo esc_html($line_number++); ?></td>
                             <td><?php echo esc_html($product->ID); ?></td>
-                            <td><a href="<?php echo esc_url(get_permalink($product->ID)); ?>" target="_blank"><?php echo esc_html(get_permalink($product->ID)); ?></a></td>
+                            <td><a href="<?php echo esc_url(get_permalink($product->ID)); ?>" target="_blank">Link<?php //echo esc_html(get_permalink($product->ID)); ?></a></td>
                             <td><?php echo $processed_log ? esc_html($processed_log->id) : 'Not Processed'; ?></td>
+                            <td><?php echo $processed_log ? esc_html($processed_log->status) : 'Not Processed'; ?></td>
+                            <td><?php echo $processed_log ? esc_html($processed_log->date_processed) : 'Not Processed'; ?></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>
